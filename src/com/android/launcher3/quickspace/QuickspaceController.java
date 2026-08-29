@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2026 crDroid Android Project
+ * Copyright (C) 2021-2026 Lineage OS Special Project (LOSP)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,7 +33,7 @@ import android.text.TextUtils;
 import android.util.Log;
 import android.view.View.OnClickListener;
 
-import com.android.internal.util.crdroid.OmniJawsClient;
+import com.android.internal.util.losp.OmniJawsClient;
 
 import com.android.launcher3.LauncherPrefs;
 import com.android.launcher3.R;
