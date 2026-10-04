@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2010 Daniel Nilsson
  * Copyright (C) 2013 Slimroms
- * Copyright (C) 2026 crDroid Android Project
+ * Copyright (C) 2026 Lineage OS Special Project (LOSP)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
