@@ -38,6 +38,8 @@ import static com.android.launcher3.logging.StatsLogManager.LauncherEvent.LAUNCH
 import static com.android.launcher3.taskbar.TaskbarAutohideSuspendController.FLAG_AUTOHIDE_SUSPEND_DRAGGING;
 import static com.android.launcher3.taskbar.TaskbarAutohideSuspendController.FLAG_AUTOHIDE_SUSPEND_FULLSCREEN;
 import static com.android.launcher3.taskbar.TaskbarManagerImpl.NAVBAR_IME_SPACE_URI;
+import static com.android.launcher3.taskbar.TaskbarManagerImpl.TASKBAR_SETTING_UNSET;
+import static com.android.launcher3.taskbar.TaskbarManagerImpl.resolveTaskbarEnabled;
 import static com.android.launcher3.taskbar.TaskbarStashController.FLAG_IN_SECONDARY_LAUNCHER_ON_CD;
 import static com.android.launcher3.taskbar.TaskbarStashController.FLAG_STASHED_IN_APP_AUTO;
 import static com.android.launcher3.taskbar.TaskbarStashController.SHOULD_BUBBLES_FOLLOW_DEFAULT_VALUE;
@@ -81,6 +83,7 @@ import android.provider.Settings.Secure;
 import android.provider.Settings.System;
 import android.util.Log;
 import android.util.Pair;
+import android.view.DisplayCutout;
 import android.view.Gravity;
 import android.view.Surface;
 import android.view.View;
@@ -372,8 +375,10 @@ public class TaskbarActivityContext extends BaseTaskbarContext {
         SettingsCache settingsCache = SettingsCache.INSTANCE.get(this);
         mIsUserSetupComplete = settingsCache.getValue(URI_USER_SETUP_COMPLETE);
         mIsNavBarKidsMode = settingsCache.getValue(URI_NAV_BAR_KIDS_MODE);
-        mIsTaskbarEnabled = settingsCache.getIntValue(URI_ENABLE_TASKBAR,
-                                launcherDp.getDeviceProperties().isLargeScreen() ? 1 : 0);
+        int rawTaskbarSetting = settingsCache.getIntValue(URI_ENABLE_TASKBAR,
+                TASKBAR_SETTING_UNSET);
+        mIsTaskbarEnabled = resolveTaskbarEnabled(rawTaskbarSetting,
+                launcherDp.getDeviceProperties().isLargeScreen());
         mIsNavbarHintEnabled = settingsCache.getValue(URI_NAVIGATION_BAR_HINT);
         mNavbarLayoutMode = settingsCache.getIntValue(URI_NAVBAR_LAYOUT_MODE);
         mIsNavbarEnabled = settingsCache.getIntValue(URI_FORCE_SHOW_NAVBAR,
@@ -412,6 +417,26 @@ public class TaskbarActivityContext extends BaseTaskbarContext {
         BubbleBarView bubbleBarView = mDragLayer.findViewById(R.id.taskbar_bubbles);
         FrameLayout bubbleBarContainer = mDragLayer.findViewById(R.id.taskbar_bubbles_container);
         StashedHandleView bubbleHandleView = mDragLayer.findViewById(R.id.stashed_bubble_handle);
+
+        mDragLayer.setOnApplyWindowInsetsListener((v, insets) -> {
+            DisplayCutout cutout = insets.getDisplayCutout();
+            if (cutout == null || !isPhoneMode()) return insets;
+            v.setPadding(
+                    cutout.getSafeInsetLeft(), cutout.getSafeInsetTop(),
+                    cutout.getSafeInsetRight(), cutout.getSafeInsetBottom());
+            return insets;
+        });
+
+        mDragLayer.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override
+            public void onViewAttachedToWindow(@NonNull View v) {
+                mDragLayer.removeOnAttachStateChangeListener(this);
+                mDragLayer.requestApplyInsets();
+            }
+
+            @Override
+            public void onViewDetachedFromWindow(@NonNull View v) {}
+        });
 
         mAccessibilityDelegate = new TaskbarShortcutMenuAccessibilityDelegate(this);
 
@@ -714,8 +739,7 @@ public class TaskbarActivityContext extends BaseTaskbarContext {
      * single window for taskbar and navbar.
      */
     public boolean isPhoneMode() {
-        if (!mDeviceProfile.getDeviceProperties().isPhone() &&
-                mIsTaskbarEnabled == 0) {
+        if (mIsTaskbarEnabled == 0 && !isBubbleBarOnPhone()) {
             return true;
         }
         return isDeviceProfileForPhoneMode(mDeviceProfile);
@@ -901,6 +925,10 @@ public class TaskbarActivityContext extends BaseTaskbarContext {
         windowLayoutParams.layoutInDisplayCutoutMode = LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
         windowLayoutParams.privateFlags =
                 WindowManager.LayoutParams.PRIVATE_FLAG_NO_MOVE_ANIMATION;
+        if (isPhoneMode()) {
+            windowLayoutParams.privateFlags |=
+                    WindowManager.LayoutParams.PRIVATE_FLAG_LAYOUT_SIZE_EXTENDED_BY_CUTOUT;
+        }
         windowLayoutParams.accessibilityTitle = getString(
                 isPhoneMode() ? R.string.taskbar_phone_a11y_title : R.string.taskbar_a11y_title);
 
@@ -1604,7 +1632,8 @@ public class TaskbarActivityContext extends BaseTaskbarContext {
         // because this is the only case in which the nav bar is not on the display bottom.
         boolean landscapePhoneButtonNav = isPhoneButtonNavMode()
                 && mDeviceProfile.getDeviceProperties().getCanNavBarMove()
-                && mDeviceProfile.getDeviceProperties().isLandscape();
+                && (mDeviceProfile.getDeviceProperties().isLandscape() !=
+                        mDeviceProfile.getDeviceProperties().isDefaultLandscape());
         if ((landscapePhoneButtonNav ? mWindowLayoutParams.width : mWindowLayoutParams.height)
                 == size || mIsDestroyed) {
             return;

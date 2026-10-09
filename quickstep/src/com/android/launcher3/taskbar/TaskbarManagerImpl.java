@@ -145,6 +145,24 @@ public class TaskbarManagerImpl {
     public static final Uri ENABLE_TASKBAR_URI = LineageSettings.System.getUriFor(
             LineageSettings.System.ENABLE_TASKBAR);
 
+    public static final int TASKBAR_SETTING_UNSET = -1;
+
+    public static int resolveTaskbarEnabled(int rawValue, boolean isLargeScreen) {
+        if (rawValue == TASKBAR_SETTING_UNSET) {
+            return isLargeScreen ? 1 : 0;
+        }
+        return rawValue != 0 ? 1 : 0;
+    }
+
+    public static int getTaskbarEnabledSetting(Context context) {
+        return SettingsCache.INSTANCE.get(context)
+                .getIntValue(ENABLE_TASKBAR_URI, TASKBAR_SETTING_UNSET);
+    }
+
+    public static boolean isTaskbarEnabledBySetting(Context context, boolean isLargeScreen) {
+        return resolveTaskbarEnabled(getTaskbarEnabledSetting(context), isLargeScreen) != 0;
+    }
+
     public static final Uri NAVIGATION_BAR_HINT_URI = LineageSettings.System.getUriFor(
             LineageSettings.System.NAVIGATION_BAR_HINT);
 
@@ -370,9 +388,9 @@ public class TaskbarManagerImpl {
                 v -> onSettingChanged(v, TaskbarActivityContext::isInKidsMode));
         cleanupTasks.addCloseable(getTaskbarUiThread(), navBarKidsModeSafeCloseable);
 
-        var enableTaskbarSafeCloseable = settingsCache.getIntListenableRef(ENABLE_TASKBAR_URI).forEach(
-                getTaskbarUiThread(),
-                v -> onTaskbarIntChanged(v, TaskbarActivityContext::isTaskbarEnabled));
+        var enableTaskbarSafeCloseable =
+                settingsCache.getIntListenableRef(ENABLE_TASKBAR_URI, TASKBAR_SETTING_UNSET)
+                        .forEach(getTaskbarUiThread(), this::onEnableTaskbarChanged);
         cleanupTasks.addCloseable(getTaskbarUiThread(), enableTaskbarSafeCloseable);
 
         var enableNavbarHintSafeCloseable = settingsCache.getListenableRef(NAVIGATION_BAR_HINT_URI)
@@ -488,7 +506,7 @@ public class TaskbarManagerImpl {
 
         var isExternalDisplay = isExternalDisplay(displayId);
 
-        if (isExternalDisplay) {
+        if (displayId != mPrimaryDisplayId) {
             var wm = mBaseContext.getSystemService(WindowManager.class);
             if (wm == null) {
                 debugTaskbarManager("initPerDisplayResource: WindowManager is null!", displayId);
@@ -567,6 +585,20 @@ public class TaskbarManagerImpl {
             var activity = resource.getTaskbar();
             if (activity != null && oldValue.applyAsInt(activity) != newValue) {
                 resource.debugMsg("Taskbar int setting changed! Restarting process!");
+                System.exit(0);
+            }
+        });
+        return Unit.INSTANCE;
+    }
+
+    private Unit onEnableTaskbarChanged(int newRawValue) {
+        mResources.forEach(resource -> {
+            var activity = resource.getTaskbar();
+            if (activity == null) return;
+            int newValue = resolveTaskbarEnabled(newRawValue,
+                    activity.getDeviceProfile().getDeviceProperties().isLargeScreen());
+            if (activity.isTaskbarEnabled() != newValue) {
+                resource.debugMsg("Taskbar enable setting changed! Restarting process!");
                 System.exit(0);
             }
         });
@@ -749,6 +781,11 @@ public class TaskbarManagerImpl {
     /** Creates a {@link TaskbarUIController} to use with non default displays. */
     private TaskbarUIController createTaskbarUIControllerForNonDefaultDisplay(int displayId) {
         debugTaskbarManager("createTaskbarUIControllerForNonDefaultDisplay", displayId);
+        if (!mUserUnlocked) {
+            // The home activity can't be resolved before the user is unlocked, which taskbars get
+            // recreated for
+            return new TaskbarUIController();
+        }
         BaseContainerInterface<?, ?> containerInterface = OverviewComponentObserver.INSTANCE.get(
                 mBaseContext).getContainerInterface(displayId);
         if (containerInterface != null) {
@@ -766,7 +803,7 @@ public class TaskbarManagerImpl {
     private TaskbarUIController createTaskbarUIControllerForRecentsViewContainer(
             RecentsViewContainerInteractor interactor, int displayId) {
         debugTaskbarManager("createTaskbarUIControllerForRecentsViewContainer", displayId);
-        if (!isExternalDisplay(displayId)
+        if (displayId == mPrimaryDisplayId
                 && mActivityInteractor instanceof LauncherInteractor launcherInteractor) {
             // If 1P Launcher is default, always use LauncherTaskbarUIController, regardless of
             // whether the recents container is NexusLauncherActivity or RecentsWindowManager. This
@@ -883,7 +920,7 @@ public class TaskbarManagerImpl {
 
             // Non default displays should not use LauncherTaskbarUIController as they shouldn't
             // have access to the Launcher activity.
-            if (resource.isExternalDisplay()) {
+            if (displayId != mPrimaryDisplayId) {
                 setUiController(taskbar, createTaskbarUIControllerForNonDefaultDisplay(displayId));
             } else if (mRecentsViewContainerInteractor != null) {
                 setUiController(taskbar, createTaskbarUIControllerForRecentsViewContainer(
@@ -1241,8 +1278,14 @@ public class TaskbarManagerImpl {
     }
 
     private boolean isExternalDisplay(int displayId) {
-        return DesktopExperienceFlags.ENABLE_TASKBAR_CONNECTED_DISPLAYS.isTrue()
-                && (mPrimaryDisplayId != displayId);
+        if (!DesktopExperienceFlags.ENABLE_TASKBAR_CONNECTED_DISPLAYS.isTrue()
+                || mPrimaryDisplayId == displayId) {
+            return false;
+        }
+        // Built-in secondary displays (e.g. on dual screen devices) get the same taskbar as the
+        // primary display instead of the connected display one.
+        Display display = getDisplay(displayId);
+        return display == null || display.getType() != Display.TYPE_INTERNAL;
     }
 
     private int getFocusedDisplayId() {
