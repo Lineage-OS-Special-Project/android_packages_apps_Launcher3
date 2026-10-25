@@ -1,7 +1,7 @@
 /*
  * SPDX-FileCopyrightText: The risingOS Android Project
  * SPDX-FileCopyrightText: The AxionAOSP Project
- * SPDX-FileCopyrightText: crDroid Android Project
+ * SPDX-FileCopyrightText: Lineage OS Special Project (LOSP)
  * SPDX-License-Identifier: Apache-2.0
  */
 
