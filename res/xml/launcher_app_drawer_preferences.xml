@@ -25,7 +25,7 @@
         android:summary="%s"
         android:entries="@array/app_drawer_style_entries"
         android:entryValues="@array/app_drawer_style_values"
-        android:defaultValue="normal"
+        android:defaultValue="fullscreen"
         android:persistent="true"
         launcher:iconSpaceReserved="false" />
 
